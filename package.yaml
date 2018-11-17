@@ -1,0 +1,43 @@
+name:                dobby
+version:             0.1.0.0
+github:              "cbeav/dobby"
+license:             BSD3
+author:              "Chris Beavers"
+maintainer:          "crbeavers@gmail.com"
+copyright:           "2018 Live Diagonal, Inc."
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+description: Please see the README on GitHub at <https://github.com/cbeav/dobby#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- attoparsec
+- classy-prelude
+- containers
+- safe
+- text
+- time
+
+library:
+  source-dirs: src
+
+default-extensions:
+- NoImplicitPrelude
+- OverloadedStrings
+- RecordWildCards
+- DeriveGeneric
+- ScopedTypeVariables
+
+executables:
+  dobby:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - dobby
