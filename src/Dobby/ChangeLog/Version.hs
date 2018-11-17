@@ -12,10 +12,14 @@ data Version
   } deriving Eq
 
 instance Show Version where
-  show Version{..} = "v" ++
-    show versionMajor ++ "." ++
-    show versionMinor ++ "." ++
-    show versionPatch
+  show Version{..} = concat
+    [ "v"
+    , show versionMajor
+    , "."
+    , show versionMinor
+    , "."
+    , show versionPatch
+    ]
 
 parseVersion :: Parser Version
 parseVersion = do
