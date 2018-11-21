@@ -9,18 +9,20 @@ import Dobby.ChangeLog.Version
 data VersionLink
   = VersionLink
   { versionLinkVersion :: !Version
-  , versionLinkPreviousVersion :: !Version
   , versionLinkCompareUrl :: !Text
+  , versionLinkPreviousVersion :: !Version
   } deriving (Eq, Show)
 
 parseVersionLink :: Parser VersionLink
-parseVersionLink = do
-  versionLinkVersion <- char '[' *> parseVersion <* string "]: "
-  versionLinkCompareUrl <- pack <$> manyTill anyChar (lookAhead parsePrevFromEnd)
-  versionLinkPreviousVersion <- parsePrevFromEnd
-  pure VersionLink{..}
+parseVersionLink =
+  VersionLink
+    <$> parseStart
+    <*> parseUrlUntil parseEnd
+    <*> parseEnd
  where
-  parsePrevFromEnd = parseVersion <* string "..." <* parseVersion <* endOfInput
+  parseStart    = char '[' *> parseVersion <* string "]: "
+  parseUrlUntil = map pack . manyTill anyChar . lookAhead
+  parseEnd      = parseVersion <* string "..." <* parseVersion <* endOfInput
 
 bumpPatchVersionLink :: VersionLink -> VersionLink
 bumpPatchVersionLink versionLink = versionLink
