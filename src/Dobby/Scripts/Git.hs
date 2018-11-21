@@ -14,8 +14,8 @@ gitProject = do
     stripEnd   = run "sed" ["-e", "s|\\.git.*||"]
   remote <- shelly $ gitRemote -|- head1
   let
-    Right test = parseOnly parseProject remote
-  pure test
+    Right project = parseOnly parseProject remote
+  pure project
  where
   parseStart = string "origin\tgit@github.com:"
   parseEnd = string ".git" <* many anyChar
@@ -24,4 +24,4 @@ gitProject = do
 
 gitCompareUrl :: IO Text
 gitCompareUrl =
-  ("https://github.com/" ++) . (++ "/compare") <$> gitProject
+  ("https://github.com/" ++) . (++ "/compare/") <$> gitProject

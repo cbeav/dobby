@@ -12,6 +12,15 @@ data Version
     , versionPatch :: !Integer
     } deriving (Eq, Show)
 
+instance Ord Version where
+  compare Unreleased Unreleased = EQ
+  compare Unreleased _ = LT
+  compare _ Unreleased = GT
+  compare (SemanticVersion ma1 mi1 pa1) (SemanticVersion ma2 mi2 pa2)
+    | ma1 == ma2 && mi1 == mi2 = compare pa1 pa2
+    | ma1 == ma2 = compare mi1 mi2
+    | otherwise = compare ma1 ma2
+
 prettyVersion :: Version -> Text
 prettyVersion Unreleased = "Unreleased"
 prettyVersion SemanticVersion{..} = pack $ concat
@@ -41,9 +50,8 @@ parseVersion = parseUnreleased <|> parseSemanticVersion
     pure SemanticVersion{..}
 
 bumpPatch :: Version -> Version
-bumpPatch Unreleased = Unreleased
+bumpPatch Unreleased = SemanticVersion 0 0 1
 bumpPatch version = version { versionPatch = versionPatch version + 1 }
 
 versionHeader :: Maybe Text -> Version -> Text
-versionHeader Nothing version     = "## [" ++ prettyVersion version ++ "]"
-versionHeader (Just date) version = "## [" ++ prettyVersion version ++ "] - " ++ date
+versionHeader date version = "## [" ++ prettyVersion version ++ "]" ++ maybe "" (" - " ++) date

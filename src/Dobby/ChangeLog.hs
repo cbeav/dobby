@@ -2,10 +2,11 @@ module Dobby.ChangeLog
   ( patchVersion
   ) where
 
-import ClassyPrelude hiding (readFile, takeWhile, try, writeFile)
-import Prelude (read)
+import ClassyPrelude hiding (maximum, readFile, takeWhile, try, writeFile)
+import Prelude (maximum, read)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Text
+import Data.Default
 import Data.Text.IO (readFile, writeFile)
 import Data.Time.Clock
 import Safe (fromJustNote)
@@ -26,6 +27,9 @@ data ChangeLogEntry
   , changeLogEntryDate       :: !(Maybe Text)
   , changeLogEntrySections   :: ![ChangeLogEntrySection]
   } deriving (Eq, Show)
+
+instance Default ChangeLogEntry where
+  def = ChangeLogEntry Unreleased Nothing []
 
 data ChangeLogEntrySection
   = ChangeLogEntrySection
@@ -50,7 +54,14 @@ patchVersion = do
   Right changeLog <- parseOnly parseChangeLog <$> readFile changeLogFile
   today <- tshow . utctDay <$> getCurrentTime
   compareUrl <- gitCompareUrl
-  writeFile changeLogFile $ prettyPrintChangeLog compareUrl changeLog
+  let maxVersion = maximum . map changeLogEntryVersion $ changeLogEntries changeLog
+  writeFile changeLogFile . prettyPrintChangeLog compareUrl $ changeLog
+    { changeLogEntries = def : map (promoteUnreleased (bumpPatch maxVersion)) (changeLogEntries changeLog)
+    }
+ where
+  promoteUnreleased newVersion entry = case changeLogEntryVersion entry of
+    Unreleased -> entry { changeLogEntryVersion = newVersion }
+    version -> entry
 
 updateChangeLog :: VersionLink -> Text -> [Text] -> Text
 updateChangeLog link today cl = unlines $ updateChangeLogRec link today cl []

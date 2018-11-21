@@ -17,6 +17,7 @@ dependencies:
 - attoparsec
 - classy-prelude
 - containers
+- data-default
 - safe
 - shelly
 - text
