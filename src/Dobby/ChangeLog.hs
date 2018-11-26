@@ -1,12 +1,16 @@
 module Dobby.ChangeLog
-  ( patchVersion
+  ( Changes(..)
+  , ChangeType(..)
+  , commit
+  , patchVersion
   ) where
 
-import ClassyPrelude hiding (maximum, readFile, takeWhile, try, writeFile)
+import ClassyPrelude hiding (maximum, maximumBy, readFile, takeWhile, try, writeFile)
 import Prelude (maximum, read)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Text
 import Data.Default
+import Data.List (maximumBy)
 import Data.Text.IO (readFile, writeFile)
 import Data.Time.Clock
 import Safe (fromJustNote)
@@ -46,38 +50,97 @@ data ChangeType
   | Security
   deriving (Eq, Show, Read)
 
+data Changes
+  = Changes
+  { changesAdded :: ![Text]
+  , changesChanged :: ![Text]
+  , changesDeprecated :: ![Text]
+  , changesFixed :: ![Text]
+  , changesRemoved :: ![Text]
+  , changesSecurity :: ![Text]
+  } deriving (Eq, Show)
+
 changeLogFile :: FilePath
 changeLogFile = "CHANGELOG.md"
 
+readChangeLog :: IO ChangeLog
+readChangeLog = do
+  Right changeLog <- parseOnly parseChangeLog <$> readFile changeLogFile
+  pure changeLog
+
+writeChangeLog :: ChangeLog -> IO ()
+writeChangeLog changeLog = do
+  compareUrl <- gitCompareUrl
+  writeFile changeLogFile $ prettyPrintChangeLog compareUrl changeLog
+
+commit :: Changes -> IO ()
+commit Changes{..} = do
+  changeLog@ChangeLog{..} <- readChangeLog
+  let
+    maxVersion = maximum $ map changeLogEntryVersion changeLogEntries
+    versionMatches = (== maxVersion) . changeLogEntryVersion
+    changeTuples =
+      [ (Added, changesAdded)
+      , (Changed, changesChanged)
+      , (Deprecated, changesDeprecated)
+      , (Fixed, changesFixed)
+      , (Removed, changesRemoved)
+      , (Security, changesSecurity)
+      ]
+    updateEntry entry = foldr (uncurry addChanges) entry changeTuples
+    newEntry = ChangeLogEntry
+      { changeLogEntryVersion = Unreleased
+      , changeLogEntryDate = Nothing
+      , changeLogEntrySections = mapMaybe (uncurry buildSection) changeTuples
+      }
+    msg = intercalate "\n\n" $ mapMaybe (uncurry commitMessage) changeTuples
+  writeChangeLog $ changeLog
+    { changeLogEntries = addOrUpdateWhere versionMatches updateEntry newEntry changeLogEntries
+    }
+  gitCommit msg
+ where
+  buildSection _ [] = Nothing
+  buildSection changeLogEntrySectionType changeLogEntrySectionLines = Just $ ChangeLogEntrySection{..}
+  commitMessage _ [] = Nothing
+  commitMessage changeType messages = Just $
+    intercalate "\n" ((tshow changeType ++ ":") : messages)
+
+addChanges :: ChangeType -> [Text] -> ChangeLogEntry -> ChangeLogEntry
+addChanges _ [] entry = entry
+addChanges changeType messages entry@ChangeLogEntry{..} =
+  let
+    sectionMatches = (== changeType) . changeLogEntrySectionType
+    updateSection section = section
+      { changeLogEntrySectionLines = changeLogEntrySectionLines section ++ messages
+      }
+    newSection = ChangeLogEntrySection
+      { changeLogEntrySectionType = changeType
+      , changeLogEntrySectionLines = messages
+      }
+  in
+    entry
+      { changeLogEntrySections = addOrUpdateWhere sectionMatches updateSection newSection changeLogEntrySections
+      }
+
+addOrUpdateWhere :: (a -> Bool) -> (a -> a) -> a -> [a] -> [a]
+addOrUpdateWhere pred mod def as =
+  maybe (as ++ [def]) (pure $ map (\a -> if pred a then mod a else a) as) (find pred as)
+
 patchVersion :: IO ()
 patchVersion = do
-  Right changeLog <- parseOnly parseChangeLog <$> readFile changeLogFile
+  changeLog <- readChangeLog
   today <- tshow . utctDay <$> getCurrentTime
-  compareUrl <- gitCompareUrl
   let maxVersion = maximum . map changeLogEntryVersion $ changeLogEntries changeLog
-  writeFile changeLogFile . prettyPrintChangeLog compareUrl $ changeLog
-    { changeLogEntries = def : map (promoteUnreleased (bumpPatch maxVersion)) (changeLogEntries changeLog)
+  writeChangeLog $ changeLog
+    { changeLogEntries = def : map (promoteUnreleased (bumpPatch maxVersion) today) (changeLogEntries changeLog)
     }
  where
-  promoteUnreleased newVersion entry = case changeLogEntryVersion entry of
-    Unreleased -> entry { changeLogEntryVersion = newVersion }
+  promoteUnreleased newVersion today entry = case changeLogEntryVersion entry of
+    Unreleased -> entry
+      { changeLogEntryVersion = newVersion
+      , changeLogEntryDate = Just today
+      }
     version -> entry
-
-updateChangeLog :: VersionLink -> Text -> [Text] -> Text
-updateChangeLog link today cl = unlines $ updateChangeLogRec link today cl []
-
-updateChangeLogRec :: VersionLink -> Text -> [Text] -> [Text] -> [Text]
-updateChangeLogRec _ _ [] acc = acc
-updateChangeLogRec link today (next:rest) acc = case unpack next of
-  "## [Unreleased]" -> updateChangeLogRec link today rest $ acc ++
-    [ "## [Unreleased]", ""
-    , versionHeader (Just today) $ versionLinkVersion link
-    ]
-  ('[':'U':'n':'r':_) -> updateChangeLogRec link today rest $ acc ++
-    [ unreleasedLink link
-    , previousLink link
-    ]
-  _ -> updateChangeLogRec link today rest (acc ++ [next])
 
 parseChangeLog :: Parser ChangeLog
 parseChangeLog = do

@@ -18,6 +18,8 @@ dependencies:
 - classy-prelude
 - containers
 - data-default
+- optparse-applicative
+- optparse-text
 - safe
 - shelly
 - text

@@ -1,4 +1,4 @@
-module Dobby.Scripts.Git (gitCompareUrl) where
+module Dobby.Scripts.Git (gitCompareUrl, gitCommit) where
 
 import ClassyPrelude hiding (stdout)
 import Data.Attoparsec.Combinator
@@ -12,7 +12,7 @@ gitProject = do
     head1      = run "head" ["-1"]
     stripStart = run "sed" ["-e", "s|^origin\tgit@github.com:||"]
     stripEnd   = run "sed" ["-e", "s|\\.git.*||"]
-  remote <- shelly $ gitRemote -|- head1
+  remote <- shelly . silently $ gitRemote -|- head1
   let
     Right project = parseOnly parseProject remote
   pure project
@@ -25,3 +25,7 @@ gitProject = do
 gitCompareUrl :: IO Text
 gitCompareUrl =
   ("https://github.com/" ++) . (++ "/compare/") <$> gitProject
+
+gitCommit :: Text -> IO ()
+gitCommit message = void . shelly . silently $
+  run "git" ["commit", "-am", message]

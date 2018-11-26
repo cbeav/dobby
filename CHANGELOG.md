@@ -6,4 +6,6 @@ All notable changes to this project will be documented in this file.
 ### Added
 - ChangeLog parser
 - First `bump-patch-version` util
+- Commit command
+- Options parsing
 
