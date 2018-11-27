@@ -10,6 +10,7 @@ import Prelude (maximum, read)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Text
 import Data.Default
+import qualified Data.HashMap.Strict as HM
 import Data.List (maximumBy)
 import Data.Text.IO (readFile, writeFile)
 import Data.Time.Clock
@@ -22,24 +23,12 @@ import Dobby.ChangeLog.VersionLink
 data ChangeLog
   = ChangeLog
   { changeLogIntro :: !Text
-  , changeLogEntries :: ![ChangeLogEntry]
+  , changeLogEntries :: !ChangeLogEntries
   } deriving (Eq, Show)
 
-data ChangeLogEntry
-  = ChangeLogEntry
-  { changeLogEntryVersion    :: !Version
-  , changeLogEntryDate       :: !(Maybe Text)
-  , changeLogEntrySections   :: ![ChangeLogEntrySection]
-  } deriving (Eq, Show)
+type ChangeLogEntries = HM.HashMap (Version, Maybe Text) Changes
 
-instance Default ChangeLogEntry where
-  def = ChangeLogEntry Unreleased Nothing []
-
-data ChangeLogEntrySection
-  = ChangeLogEntrySection
-  { changeLogEntrySectionType  :: !ChangeType
-  , changeLogEntrySectionLines :: ![Text]
-  } deriving (Eq, Show)
+type Changes = HM.HashMap ChangeType [Text]
 
 data ChangeType
   = Added
@@ -48,17 +37,9 @@ data ChangeType
   | Fixed
   | Removed
   | Security
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
 
-data Changes
-  = Changes
-  { changesAdded :: ![Text]
-  , changesChanged :: ![Text]
-  , changesDeprecated :: ![Text]
-  , changesFixed :: ![Text]
-  , changesRemoved :: ![Text]
-  , changesSecurity :: ![Text]
-  } deriving (Eq, Show)
+instance Hashable ChangeType
 
 changeLogFile :: FilePath
 changeLogFile = "CHANGELOG.md"
@@ -74,87 +55,43 @@ writeChangeLog changeLog = do
   writeFile changeLogFile $ prettyPrintChangeLog compareUrl changeLog
 
 commit :: Changes -> IO ()
-commit Changes{..} = do
+commit changes = do
   changeLog@ChangeLog{..} <- readChangeLog
   let
-    maxVersion = maximum $ map changeLogEntryVersion changeLogEntries
-    versionMatches = (== maxVersion) . changeLogEntryVersion
-    changeTuples =
-      [ (Added, changesAdded)
-      , (Changed, changesChanged)
-      , (Deprecated, changesDeprecated)
-      , (Fixed, changesFixed)
-      , (Removed, changesRemoved)
-      , (Security, changesSecurity)
-      ]
-    updateEntry entry = foldr (uncurry addChanges) entry changeTuples
-    newEntry = ChangeLogEntry
-      { changeLogEntryVersion = Unreleased
-      , changeLogEntryDate = Nothing
-      , changeLogEntrySections = mapMaybe (uncurry buildSection) changeTuples
-      }
-    msg = intercalate "\n\n" $ mapMaybe (uncurry commitMessage) changeTuples
+    latestVersion = maximumBy (\a b -> compare (snd a) (snd b)) $ HM.keys changeLogEntries
+    msg = prettyPrintChanges changes
   writeChangeLog $ changeLog
-    { changeLogEntries = addOrUpdateWhere versionMatches updateEntry newEntry changeLogEntries
+    { changeLogEntries = HM.insertWith (HM.unionWith (flip (++))) latestVersion changes changeLogEntries
     }
   gitCommit msg
- where
-  buildSection _ [] = Nothing
-  buildSection changeLogEntrySectionType changeLogEntrySectionLines = Just $ ChangeLogEntrySection{..}
-  commitMessage _ [] = Nothing
-  commitMessage changeType messages = Just $
-    intercalate "\n" ((tshow changeType ++ ":") : messages)
-
-addChanges :: ChangeType -> [Text] -> ChangeLogEntry -> ChangeLogEntry
-addChanges _ [] entry = entry
-addChanges changeType messages entry@ChangeLogEntry{..} =
-  let
-    sectionMatches = (== changeType) . changeLogEntrySectionType
-    updateSection section = section
-      { changeLogEntrySectionLines = changeLogEntrySectionLines section ++ messages
-      }
-    newSection = ChangeLogEntrySection
-      { changeLogEntrySectionType = changeType
-      , changeLogEntrySectionLines = messages
-      }
-  in
-    entry
-      { changeLogEntrySections = addOrUpdateWhere sectionMatches updateSection newSection changeLogEntrySections
-      }
-
-addOrUpdateWhere :: (a -> Bool) -> (a -> a) -> a -> [a] -> [a]
-addOrUpdateWhere pred mod def as =
-  maybe (as ++ [def]) (pure $ map (\a -> if pred a then mod a else a) as) (find pred as)
 
 patchVersion :: IO ()
 patchVersion = do
-  changeLog <- readChangeLog
+  changeLog@ChangeLog{..} <- readChangeLog
   today <- tshow . utctDay <$> getCurrentTime
-  let maxVersion = maximum . map changeLogEntryVersion $ changeLogEntries changeLog
+  let
+    urVersion = (Unreleased, Nothing)
+    latestVersion = maximum . map fst $ HM.keys changeLogEntries
+    newVersion = (bumpPatch latestVersion, Just today)
+    newEntry = changeLogEntries HM.! (Unreleased, Nothing)
+    cleaned = HM.insert urVersion HM.empty changeLogEntries
   writeChangeLog $ changeLog
-    { changeLogEntries = def : map (promoteUnreleased (bumpPatch maxVersion) today) (changeLogEntries changeLog)
+    { changeLogEntries = HM.insert newVersion newEntry cleaned
     }
- where
-  promoteUnreleased newVersion today entry = case changeLogEntryVersion entry of
-    Unreleased -> entry
-      { changeLogEntryVersion = newVersion
-      , changeLogEntryDate = Just today
-      }
-    version -> entry
 
 parseChangeLog :: Parser ChangeLog
 parseChangeLog = do
   changeLogIntro <- parseTextUntil parseChangeLogEntry
-  changeLogEntries <- many parseChangeLogEntry
+  changeLogEntries <- HM.fromListWith (++) <$> many parseChangeLogEntry
   pure ChangeLog{..}
  where
   parseTextUntil = map pack . manyTill anyChar . lookAhead
 
-parseChangeLogEntry :: Parser ChangeLogEntry
+parseChangeLogEntry :: Parser ((Version, Maybe Text), Changes)
 parseChangeLogEntry = do
-  (changeLogEntryVersion, changeLogEntryDate) <- parseChangeLogHeader
-  changeLogEntrySections <- many parseChangeLogEntrySection
-  pure ChangeLogEntry{..}
+  key <- parseChangeLogHeader
+  value <- HM.fromListWith (++) <$> many parseChangeLogEntrySection
+  pure (key, value)
 
 parseChangeLogHeader :: Parser (Version, Maybe Text)
 parseChangeLogHeader = do
@@ -163,11 +100,11 @@ parseChangeLogHeader = do
   many endOfLine
   pure (version, date)
 
-parseChangeLogEntrySection :: Parser ChangeLogEntrySection
+parseChangeLogEntrySection :: Parser (ChangeType, [Text])
 parseChangeLogEntrySection = do
-  changeLogEntrySectionType <- read <$> (string "### " *> many letter <* endOfLine)
-  changeLogEntrySectionLines <- option [] (manyTill parseLine parseBreak <* many endOfLine)
-  pure ChangeLogEntrySection{..}
+  changeType <- read <$> (string "### " *> many letter <* endOfLine)
+  lines <- option [] (manyTill parseLine parseBreak <* many endOfLine)
+  pure (changeType, lines)
  where
   parseLine = string "- " *> takeWhile (/= '\n') <* endOfLine
   parseBreak = void parseVersionLink <|> void endOfLine <|> void endOfInput
@@ -175,13 +112,13 @@ parseChangeLogEntrySection = do
 prettyPrintChangeLog :: Text -> ChangeLog -> Text
 prettyPrintChangeLog compareUrl ChangeLog{..} =
   changeLogIntro ++
-  unlines (map prettyPrintChangeLogEntry changeLogEntries) ++
-  unlines (buildReleaseLinks compareUrl [] changeLogEntries)
+  unlines (map prettyPrintChangeLogEntry $ HM.toList changeLogEntries) ++
+  unlines (buildReleaseLinks compareUrl [] $ (map fst . HM.keys) changeLogEntries)
 
-prettyPrintChangeLogEntry :: ChangeLogEntry -> Text
-prettyPrintChangeLogEntry ChangeLogEntry{..} =
-  prettyPrintHeader changeLogEntryVersion changeLogEntryDate ++
-  intercalate "\n" (map prettyPrintSection changeLogEntrySections)
+prettyPrintChangeLogEntry :: ((Version, Maybe Text), Changes) -> Text
+prettyPrintChangeLogEntry ((version, mDate), changes) =
+  prettyPrintHeader version mDate ++
+  prettyPrintChanges changes
  where
   prettyPrintHeader version date = concat
     [ "## ["
@@ -190,18 +127,22 @@ prettyPrintChangeLogEntry ChangeLogEntry{..} =
     , maybe "" (" - " ++) date
     , "\n"
     ]
-  prettyPrintSection ChangeLogEntrySection{..} = unlines $
-    ("### " ++ tshow changeLogEntrySectionType) :
-    map ("- " ++) changeLogEntrySectionLines
 
-buildReleaseLinks :: Text -> [Text] -> [ChangeLogEntry] -> [Text]
+prettyPrintChanges :: Changes -> Text
+prettyPrintChanges changes =
+  let
+    nonEmptySections = HM.toList $ HM.filter ((> 0) . length) changes
+    prettyPrintSection (changeType, lines) = unlines $
+      ("### " ++ tshow changeType) : map ("- " ++) lines
+  in
+   intercalate "\n" $ map prettyPrintSection nonEmptySections
+
+buildReleaseLinks :: Text -> [Text] -> [Version] -> [Text]
 buildReleaseLinks compareUrl acc [] = acc
 buildReleaseLinks compareUrl acc [_] = acc
 buildReleaseLinks compareUrl acc (this:that:rest) =
   let
-    thisVersion = changeLogEntryVersion this
-    thatVersion = changeLogEntryVersion that
-    link this that = concat
+    link = concat
       [ "["
       , prettyVersion this
       , "]: "
@@ -211,4 +152,4 @@ buildReleaseLinks compareUrl acc (this:that:rest) =
       , prettyVersionLink this
       ]
   in
-    buildReleaseLinks compareUrl (acc ++  [link thisVersion thatVersion]) (that:rest)
+    buildReleaseLinks compareUrl (acc ++  [link]) (that:rest)

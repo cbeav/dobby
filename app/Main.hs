@@ -1,39 +1,25 @@
+{-# LANGUAGE TupleSections #-}
 module Main where
 
-import ClassyPrelude
+import ClassyPrelude hiding (fromList)
+import Data.HashMap.Strict (fromList)
 import Dobby.ChangeLog
 import Options.Applicative
 import Options.Applicative.Text
 
 commitOpts :: Parser Changes
-commitOpts = Changes
-  <$> many (textOption
-    ( long "added"
-   <> short 'a'
-   <> metavar "ADDED" ) )
-  <*> many (textOption
-    ( long "changed"
-   <> short 'c'
-   <> metavar "CHANGED" ) )
-  <*> many (textOption
-    ( long "deprecated"
-   <> short 'd'
-   <> metavar "DEPRECATED" ) )
-  <*> many (textOption
-    ( long "fixed"
-   <> short 'f'
-   <> metavar "FIXED" ) )
-  <*> many (textOption
-    ( long "Removed"
-   <> short 'r'
-   <> metavar "REMOVED" ) )
-  <*> many (textOption
-    ( long "Security"
-   <> short 's'
-   <> metavar "SECURITY" ) )
+commitOpts = fromList <$> sequenceA
+  [ (Added,)      <$> opt "added"      'a' "ADDED"
+  , (Changed,)    <$> opt "changed"    'c' "CHANGED"
+  , (Deprecated,) <$> opt "deprecated" 'd' "DEPRECATED"
+  , (Fixed,)      <$> opt "fixed"      'f' "FIXED"
+  , (Removed,)    <$> opt "removed"    'r' "REMOVED"
+  , (Security,)   <$> opt "security"   's' "SECURITY"
+  ]
+ where opt l s d = many (textOption (long l <> short s <> metavar d))
 
 main :: IO ()
-main =
-  join . execParser . flip info idm $ subparser
-    ( command "commit" (info (commit <$> commitOpts) idm)
-   <> command "patch-release" (info (pure patchVersion) idm) )
+main = join . execParser . flip info idm $ subparser
+  ( command "commit"        (info (commit <$> commitOpts) idm)
+ <> command "patch-release" (info (pure patchVersion)     idm)
+  )

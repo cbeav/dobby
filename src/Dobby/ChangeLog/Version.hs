@@ -10,7 +10,9 @@ data Version
     { versionMajor :: !Integer
     , versionMinor :: !Integer
     , versionPatch :: !Integer
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Generic)
+
+instance Hashable Version
 
 instance Ord Version where
   compare Unreleased Unreleased = EQ

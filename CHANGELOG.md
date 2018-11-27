@@ -8,4 +8,5 @@ All notable changes to this project will be documented in this file.
 - First `bump-patch-version` util
 - Commit command
 - Options parsing
+- Monoidal Changes via HashMap
 
