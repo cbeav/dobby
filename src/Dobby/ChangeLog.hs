@@ -57,13 +57,11 @@ writeChangeLog changeLog = do
 commit :: Changes -> IO ()
 commit changes = do
   changeLog@ChangeLog{..} <- readChangeLog
-  let
-    latestVersion = maximumBy (\a b -> compare (snd a) (snd b)) $ HM.keys changeLogEntries
-    msg = prettyPrintChanges changes
+  let latestVersion = maximumBy (compare `on` snd) $ HM.keys changeLogEntries
   writeChangeLog $ changeLog
     { changeLogEntries = HM.insertWith (HM.unionWith (flip (++))) latestVersion changes changeLogEntries
     }
-  gitCommit msg
+  gitCommit $ prettyPrintChanges changes
 
 patchVersion :: IO ()
 patchVersion = do
