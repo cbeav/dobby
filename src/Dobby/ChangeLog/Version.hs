@@ -56,4 +56,9 @@ bumpPatch Unreleased = SemanticVersion 0 0 1
 bumpPatch version = version { versionPatch = versionPatch version + 1 }
 
 versionHeader :: Maybe Text -> Version -> Text
-versionHeader date version = "## [" ++ prettyVersion version ++ "]" ++ maybe "" (" - " ++) date
+versionHeader date version = concat
+  [ "## ["
+  , prettyVersion version
+  , "]"
+  , maybe "" (" - " ++) date
+  ]

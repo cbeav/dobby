@@ -112,8 +112,13 @@ parseChangeLogEntrySection = do
 prettyPrintChangeLog :: Text -> ChangeLog -> Text
 prettyPrintChangeLog compareUrl ChangeLog{..} =
   changeLogIntro ++
-  unlines (map prettyPrintChangeLogEntry $ HM.toList changeLogEntries) ++
-  unlines (buildReleaseLinks compareUrl [] $ (map fst . HM.keys) changeLogEntries)
+  unlines (map prettyPrintChangeLogEntry . sortBy entryOrder $ HM.toList changeLogEntries) ++
+  unlines (buildReleaseLinks compareUrl [] $ (sortBy changeLogOrder . map fst . HM.keys) changeLogEntries)
+ where
+  entryOrder ((v1, _), _) ((v2, _), _) = changeLogOrder v1 v2
+  changeLogOrder Unreleased _ = LT
+  changeLogOrder _ Unreleased = GT
+  changeLogOrder v1 v2 = compare v2 v1
 
 prettyPrintChangeLogEntry :: ((Version, Maybe Text), Changes) -> Text
 prettyPrintChangeLogEntry ((version, mDate), changes) =
