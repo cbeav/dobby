@@ -76,6 +76,8 @@ patchVersion = do
   writeChangeLog $ changeLog
     { changeLogEntries = HM.insert newVersion newEntry cleaned
     }
+  gitCommit $ "ChangeLog for " ++ tshow (fst newVersion)
+  gitRelease (fst newVersion) (prettyPrintChangeLogEntry (newVersion, newEntry))
 
 parseChangeLog :: Parser ChangeLog
 parseChangeLog = do

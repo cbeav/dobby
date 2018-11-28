@@ -1,9 +1,11 @@
-module Dobby.Scripts.Git (gitCompareUrl, gitCommit) where
+module Dobby.Scripts.Git (gitCompareUrl, gitCommit, gitRelease) where
 
 import ClassyPrelude hiding (stdout)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Text
 import Shelly
+
+import Dobby.ChangeLog.Version
 
 gitProject :: IO Text
 gitProject = do
@@ -29,3 +31,8 @@ gitCompareUrl =
 gitCommit :: Text -> IO ()
 gitCommit message = void . shelly . silently $
   run "git" ["commit", "-am", message]
+
+gitRelease :: Version -> Text -> IO ()
+gitRelease v msg = void . shelly . silently $ do
+  run "git" ["tag", "-a", prettyVersion v, "-m", msg]
+  run "git" ["push", "--tags"]
